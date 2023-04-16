@@ -9,9 +9,7 @@
 
 # set up job
 module load python/3.9.12 cuda/11.6.2
-# module load python/3.9.12 cuda/10.2.89
 source env/bin/activate
-# module load python/3.9.12 cuda/10.2.89
 module load python/3.9.12 cuda/11.6.2
 # pushd /home/kpyu/great-lakes-tutorial
 
