@@ -3,6 +3,8 @@ import torch.nn as nn
 from torch.nn import init
 import functools
 from torch.optim import lr_scheduler
+import pdb
+import torch.nn.functional as F
 
 
 ###############################################################################
@@ -155,6 +157,8 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
         net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'unet_256':
         net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+    elif netG == 'multiscale':
+        net = MultiscaleGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9)
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % netG)
     return init_net(net, init_type, init_gain, gpu_ids)
@@ -371,9 +375,189 @@ class ResnetGenerator(nn.Module):
 
     def forward(self, input):
         """Standard forward"""
+        # pdb.set_trace()
         return self.model(input)
 
+class MultiscaleGenerator(nn.Module):
+    """Resnet-based generator that consists of Resnet blocks between a few downsampling/upsampling operations.
 
+    We adapt Torch code and idea from Justin Johnson's neural style transfer project(https://github.com/jcjohnson/fast-neural-style)
+    """
+
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
+        """Construct a Resnet-based generator
+
+        Parameters:
+            input_nc (int)      -- the number of channels in input images
+            output_nc (int)     -- the number of channels in output images
+            ngf (int)           -- the number of filters in the last conv layer
+            norm_layer          -- normalization layer
+            use_dropout (bool)  -- if use dropout layers
+            n_blocks (int)      -- the number of ResNet blocks
+            padding_type (str)  -- the name of padding layer in conv layers: reflect | replicate | zero
+        """
+        assert(n_blocks >= 0)
+        super(MultiscaleGenerator, self).__init__()
+        if type(norm_layer) == functools.partial:
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+
+        ###### Encoder ###### 
+        starting_kernel_size = 64
+        e_starting_channel_size = 128 # Num channels in lowest resolution feature of each stream 
+        self.num_encoder_streams = 5
+
+        self.encoder_streams = []
+        for i in range(self.num_encoder_streams):
+            stream_scale = 2 ** i # Scale channels/kernel sizes according to coarse/fine streams
+            stream = []
+            
+            # Set up this streams initial convolution
+            kernel_size = starting_kernel_size // stream_scale
+            out_channels = e_starting_channel_size // stream_scale
+            stream.append(nn.Sequential(*[nn.Conv2d(in_channels=3,
+                                                out_channels= out_channels,
+                                                kernel_size=kernel_size,
+                                                stride=kernel_size // 2,
+                                                padding=kernel_size // 4,
+                                                bias=use_bias),
+                                      norm_layer(out_channels),
+                                      nn.ReLU(True)]))
+
+            # Add resblocks to continue processing later streams 
+            for j in range(i):
+                stream += [ResnetBlockDownsample(out_channels * (2**j), padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+
+            stream = nn.Sequential(*stream)
+            self.encoder_streams.append(stream)
+
+        ###### Decoder ###### 
+        d_starting_out_channel = 512
+        decoder = []
+        out_channels = 0
+        for i in range(self.num_encoder_streams):
+            #               num features of this size          feature channel dim               prev feature
+            in_channels = (self.num_encoder_streams - i) * (e_starting_channel_size // (2 ** i)) + out_channels
+            out_channels = d_starting_out_channel // (2 ** i)
+            decoder.append(nn.Sequential(*[nn.ConvTranspose2d(in_channels, out_channels,
+                                                              kernel_size=3, stride=2,
+                                                              padding=1, output_padding=1,
+                                                              bias=use_bias),
+                                           norm_layer(out_channels),
+                                           nn.ReLU(True)]))
+            
+        self.decoder = nn.Sequential(*decoder)
+            
+        # Transform final feature to RGB image
+        self.final_transform = nn.Sequential(*[nn.ReflectionPad2d(3),
+                                               nn.Conv2d(out_channels, output_nc, kernel_size=7, padding=0),
+                                               nn.Tanh()])
+
+        # pdb.set_trace()
+
+    def forward_debug(self, input):
+        print(input.shape)
+        output = input
+        for m in self.model.children():
+            output = m(output)
+            print(m, output.shape)
+        return output
+
+    def forward(self, input):
+        """Standard forward"""
+        x_e = []
+
+        # Input image to each encoder stream
+        for i in range(self.num_encoder_streams):
+            intermediate_feats = []
+
+            # Go through initial conv + following res blocks and save intermediate outputs
+            x = input
+            for enc_child in self.encoder_streams[i].children():
+                x = enc_child(x)
+                intermediate_feats.append(torch.Tensor(x)) # WRONG TODO -- prev output needs to be input
+            x_e.append(intermediate_feats)
+        
+        # pdb.set_trace()
+        output = torch.empty(0)#.cuda()
+        for i, child in enumerate(self.decoder.children()):
+            # TODO Setup so that previous output is input to next
+
+            to_cat = [output]
+            for j in range(i, len(x_e)):
+                to_cat.append(x_e[j][-1 - i]) # Keep moving back which one you selectfrom each encoder stream
+
+            cat = torch.cat(to_cat, dim=1)
+            output = child(cat)
+        
+        output = self.final_transform(output)
+        
+        return output
+
+# Alternative ResNet Block that reduces feature size by 0.5 while doubling channels in output
+class ResnetBlockDownsample(nn.Module):
+    """Define a Resnet block"""
+
+    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
+        """Initialize the Resnet block
+
+        A resnet block is a conv block with skip connections
+        We construct a conv block with build_conv_block function,
+        and implement skip connections in <forward> function.
+        Original Resnet paper: https://arxiv.org/pdf/1512.03385.pdf
+        """
+        super(ResnetBlockDownsample, self).__init__()
+        self.conv_shortcut = nn.Conv2d(dim, dim * 2, kernel_size=1, bias=False)
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
+
+    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
+        """Construct a convolutional block.
+
+        Parameters:
+            dim (int)           -- the number of channels in the conv layer.
+            padding_type (str)  -- the name of padding layer: reflect | replicate | zero
+            norm_layer          -- normalization layer
+            use_dropout (bool)  -- if use dropout layers.
+            use_bias (bool)     -- if the conv layer uses bias or not
+
+        Returns a conv block (with a conv layer, a normalization layer, and a non-linearity layer (ReLU))
+        """
+        conv_block = []
+        p = 0
+        if padding_type == 'reflect':
+            conv_block += [nn.ReflectionPad2d(1)]
+        elif padding_type == 'replicate':
+            conv_block += [nn.ReplicationPad2d(1)]
+        elif padding_type == 'zero':
+            p = 1
+        else:
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
+        if use_dropout:
+            conv_block += [nn.Dropout(0.5)]
+
+        p = 0
+        if padding_type == 'reflect':
+            conv_block += [nn.ReflectionPad2d(1)]
+        elif padding_type == 'replicate':
+            conv_block += [nn.ReplicationPad2d(1)]
+        elif padding_type == 'zero':
+            p = 1
+        else:
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim * 2, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim * 2)]
+
+        return nn.Sequential(*conv_block)
+
+    def forward(self, x):
+        """Forward function (with skip connections)"""
+        x = F.interpolate(x, scale_factor=0.5)
+        x_s = self.conv_shortcut(x)
+        out = x_s + self.conv_block(x)  # add skip connections with corrected channels
+        return out
+    
 class ResnetBlock(nn.Module):
     """Define a Resnet block"""
 
@@ -430,6 +614,7 @@ class ResnetBlock(nn.Module):
 
     def forward(self, x):
         """Forward function (with skip connections)"""
+        # x = F.interpolate(x, scale_factor=0.5)
         out = x + self.conv_block(x)  # add skip connections
         return out
 

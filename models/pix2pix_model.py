@@ -1,6 +1,7 @@
 import torch
 from .base_model import BaseModel
 from . import networks
+import pdb
 
 
 class Pix2PixModel(BaseModel):
@@ -85,6 +86,7 @@ class Pix2PixModel(BaseModel):
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
+        # pdb.set_trace()
         self.fake_B = self.netG(self.real_A)  # G(A)
 
     def backward_D(self):
