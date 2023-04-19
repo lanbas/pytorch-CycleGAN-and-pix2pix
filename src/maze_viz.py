@@ -47,32 +47,37 @@ class Visualizer(object):
         self.plot_walls()
 
         # Display the plot to the user
-        plt.show()
-
+        #plt.show()
+        # self.ax.add_patch(plt.Circle(((self.maze.entry_coor[1] + 0.5) * self.cell_size,
+        #                             (self.maze.entry_coor[0] + 0.5) * self.cell_size), 0.2 * self.cell_size,
+        #                             fc='blue'))
+        # self.ax.add_patch(plt.Circle(((self.maze.exit_coor[1] + 0.5) * self.cell_size,
+        #                             (self.maze.exit_coor[0] + 0.5) * self.cell_size), 0.2 * self.cell_size,
+        #                             fc='green'))
         # Handle any potential saving
         if self.media_filename:
-            fig.savefig("{}{}.png".format(self.media_filename, "_generation"), frameon=None)
+            fig.savefig("{}.png".format(self.media_filename), frameon=None)
 
     def plot_walls(self):
         """ Plots the walls of a maze. This is used when generating the maze image"""
         for i in range(self.maze.num_rows):
             for j in range(self.maze.num_cols):
-                if self.maze.initial_grid[i][j].is_entry_exit == "entry":
-                    self.ax.text(j*self.cell_size, i*self.cell_size, "START", fontsize=7, weight="bold")
-                elif self.maze.initial_grid[i][j].is_entry_exit == "exit":
-                    self.ax.text(j*self.cell_size, i*self.cell_size, "END", fontsize=7, weight="bold")
+                # if self.maze.initial_grid[i][j].is_entry_exit == "entry":
+                #     self.ax.text(j*self.cell_size, i*self.cell_size, "START", fontsize=7, weight="bold")
+                # elif self.maze.initial_grid[i][j].is_entry_exit == "exit":
+                #     self.ax.text(j*self.cell_size, i*self.cell_size, "END", fontsize=7, weight="bold")
                 if self.maze.initial_grid[i][j].walls["top"]:
                     self.ax.plot([j*self.cell_size, (j+1)*self.cell_size],
-                                 [i*self.cell_size, i*self.cell_size], color="k")
+                                 [i*self.cell_size, i*self.cell_size], color="k", linewidth=20)
                 if self.maze.initial_grid[i][j].walls["right"]:
                     self.ax.plot([(j+1)*self.cell_size, (j+1)*self.cell_size],
-                                 [i*self.cell_size, (i+1)*self.cell_size], color="k")
+                                 [i*self.cell_size, (i+1)*self.cell_size], color="k", linewidth=20)
                 if self.maze.initial_grid[i][j].walls["bottom"]:
                     self.ax.plot([(j+1)*self.cell_size, j*self.cell_size],
-                                 [(i+1)*self.cell_size, (i+1)*self.cell_size], color="k")
+                                 [(i+1)*self.cell_size, (i+1)*self.cell_size], color="k", linewidth=20)
                 if self.maze.initial_grid[i][j].walls["left"]:
                     self.ax.plot([j*self.cell_size, j*self.cell_size],
-                                 [(i+1)*self.cell_size, i*self.cell_size], color="k")
+                                 [(i+1)*self.cell_size, i*self.cell_size], color="k", linewidth=20)
 
     def configure_plot(self):
         """Sets the initial properties of the maze plot. Also creates the plot and axes"""
@@ -90,16 +95,45 @@ class Visualizer(object):
         self.ax.axes.get_xaxis().set_visible(False)
         self.ax.axes.get_yaxis().set_visible(False)
 
-        title_box = self.ax.text(0, self.maze.num_rows + self.cell_size + 0.1,
-                            r"{}$\times${}".format(self.maze.num_rows, self.maze.num_cols),
-                            bbox={"facecolor": "gray", "alpha": 0.5, "pad": 4}, fontname="serif", fontsize=15)
+        # title_box = self.ax.text(0, self.maze.num_rows + self.cell_size + 0.1,
+        #                     r"{}$\times${}".format(self.maze.num_rows, self.maze.num_cols),
+        #                     bbox={"facecolor": "gray", "alpha": 0.5, "pad": 4}, fontname="serif", fontsize=15)
 
         return fig
 
     def show_maze_solution(self):
         """Function that plots the solution to the maze. Also adds indication of entry and exit points."""
 
-        # Create the figure and style the axes
+        # # Create the figure and style the axes
+        # fig = self.configure_plot()
+
+        # # Plot the walls onto the figure
+        # self.plot_walls()
+
+        # list_of_backtrackers = [path_element[0] for path_element in self.maze.solution_path if path_element[1]]
+
+        # # Keeps track of how many circles have been drawn
+        # #circle_num = 0
+        # self.ax.add_patch(plt.Circle(((self.maze.solution_path[0][0][1] + 0.5)*self.cell_size,
+        #                               (self.maze.solution_path[0][0][0] + 0.5)*self.cell_size), 0.2*self.cell_size,
+        #                              fc='red', alpha=0.4))
+
+        # for i in range(1, self.maze.solution_path.__len__()):
+        #     if self.maze.solution_path[i][0] not in list_of_backtrackers and\
+        #             self.maze.solution_path[i-1][0] not in list_of_backtrackers:
+        #         #circle_num += 1
+
+        #         self.ax.add_patch(plt.Circle(((self.maze.solution_path[i][0][1] + 0.5)*self.cell_size,
+        #             (self.maze.solution_path[i][0][0] + 0.5)*self.cell_size), 0.2*self.cell_size,
+        #             fc = 'red', alpha = 0.4))
+
+        # # Display the plot to the user
+        # #plt.show()
+
+        # # Handle any saving
+        # if self.media_filename:
+        #     fig.savefig("{}{}.png".format(self.media_filename, "_solution"), frameon=None)
+     # Create the figure and style the axes
         fig = self.configure_plot()
 
         # Plot the walls onto the figure
@@ -107,29 +141,34 @@ class Visualizer(object):
 
         list_of_backtrackers = [path_element[0] for path_element in self.maze.solution_path if path_element[1]]
 
-        # Keeps track of how many circles have been drawn
-        circle_num = 0
-
-        self.ax.add_patch(plt.Circle(((self.maze.solution_path[0][0][1] + 0.5)*self.cell_size,
-                                      (self.maze.solution_path[0][0][0] + 0.5)*self.cell_size), 0.2*self.cell_size,
-                                     fc=(0, circle_num/(len(self.maze.solution_path) - 2*len(list_of_backtrackers)),
-                                         0), alpha=0.4))
-
-        for i in range(1, self.maze.solution_path.__len__()):
+        # Get the path as a list of x, y coordinates
+        # path_x = [(coord[1] + 0.5) * self.cell_size for coord, _ in self.maze.solution_path]
+        # path_y = [(coord[0] + 0.5) * self.cell_size for coord, _ in self.maze.solution_path]
+        path_x = []
+        path_y = []
+        for i in range(self.maze.solution_path.__len__()):
             if self.maze.solution_path[i][0] not in list_of_backtrackers and\
                     self.maze.solution_path[i-1][0] not in list_of_backtrackers:
-                circle_num += 1
-                self.ax.add_patch(plt.Circle(((self.maze.solution_path[i][0][1] + 0.5)*self.cell_size,
-                    (self.maze.solution_path[i][0][0] + 0.5)*self.cell_size), 0.2*self.cell_size,
-                    fc = (0, circle_num/(len(self.maze.solution_path) - 2*len(list_of_backtrackers)), 0), alpha = 0.4))
+                path_x.append((self.maze.solution_path[i][0][1]+0.5)*self.cell_size)
+                path_y.append((self.maze.solution_path[i][0][0]+0.5)*self.cell_size)
+                #circle_num += 1
+        # Plot the path as a line
+        self.ax.plot(path_x, path_y, linewidth=48, color='red')
+
+        # Add a marker for the entrance and exit
+        # self.ax.add_patch(plt.Circle(((self.maze.entry_coor[1] + 0.5) * self.cell_size,
+        #                             (self.maze.entry_coor[0] + 0.5) * self.cell_size), 0.2 * self.cell_size,
+        #                             fc='blue'))
+        # self.ax.add_patch(plt.Circle(((self.maze.exit_coor[1] + 0.5) * self.cell_size,
+        #                             (self.maze.exit_coor[0] + 0.5) * self.cell_size), 0.2 * self.cell_size,
+        #                             fc='green'))
 
         # Display the plot to the user
-        plt.show()
+        #plt.show()
 
         # Handle any saving
         if self.media_filename:
-            fig.savefig("{}{}.png".format(self.media_filename, "_solution"), frameon=None)
-
+            fig.savefig("{}.png".format(self.media_filename), frameon=None)
     def show_generation_animation(self):
         """Function that animates the process of generating the a maze where path is a list
         of coordinates indicating the path taken to carve out (break down walls) the maze."""
