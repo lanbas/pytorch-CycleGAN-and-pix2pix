@@ -657,14 +657,6 @@ class GlobalDiscriminator(nn.Module):
 
     def forward(self, input):
         """Standard forward."""
-        # output = input
-        # print(output.size())
-        # for module in self.model:
-        #     output = module(output)
-        #     print(module)
-        #     print(output.size())
-        # print('----------------------------------------------')
-        # return output
         return self.model(input)
     
 class PixelDiscriminator(nn.Module):
