@@ -6,7 +6,7 @@ import pdb
 import numpy as np
 
 def sort_by_index(fname):
-    return int(fname.split("_")[1])
+    return int(fname.split(".")[0])
 
 def main(args):
     # Assumes dir A and dir B contain same amount and same size images
