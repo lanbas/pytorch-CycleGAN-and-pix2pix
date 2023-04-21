@@ -554,16 +554,16 @@ class NLayerDiscriminator(nn.Module):
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
 
-        kw = 5
-        padw = 2
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=1, padding=padw), nn.LeakyReLU(0.2, True)]
+        kw = 4
+        padw = 1
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):  # gradually increase the number of filters
             nf_mult_prev = nf_mult
             nf_mult = min(2 ** n, 8)
             sequence += [
-                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias),
+                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias),
                 norm_layer(ndf * nf_mult),
                 nn.LeakyReLU(0.2, True)
             ]
@@ -577,10 +577,21 @@ class NLayerDiscriminator(nn.Module):
         ]
 
         sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]  # output 1 channel prediction map
+        sequence += [nn.Flatten()]
+        sequence += [nn.Linear(900, 30)] 
+        sequence += [nn.Linear(30, 2)]       
         self.model = nn.Sequential(*sequence)
 
     def forward(self, input):
         """Standard forward."""
+        # output = input
+        # print(output.size())
+        # for module in self.model:
+        #     output = module(output)
+        #     print(module)
+        #     print(output.size())
+        # print('----------------------------------------------')
+        # return output
         return self.model(input)
     
 class PixelDiscriminator(nn.Module):
