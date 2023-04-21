@@ -103,6 +103,9 @@ def get_transform(opt, params=None, grayscale=False, method=transforms.Interpola
         elif params['flip']:
             transform_list.append(transforms.Lambda(lambda img: __flip(img, params['flip'])))
 
+    # if not opt.no_flip:
+    #     transform_list.append(transforms.RandomVerticalFlip())
+
     if convert:
         transform_list += [transforms.ToTensor()]
         if grayscale:

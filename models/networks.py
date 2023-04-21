@@ -408,7 +408,7 @@ class MultiscaleGenerator(nn.Module):
         e_starting_channel_size = 128 # Num channels in lowest resolution feature of each stream 
         self.num_encoder_streams = 5
 
-        self.encoder_streams = []
+        self.encoder_streams = nn.ModuleList([])
         for i in range(self.num_encoder_streams):
             stream_scale = 2 ** i # Scale channels/kernel sizes according to coarse/fine streams
             stream = []
@@ -480,7 +480,7 @@ class MultiscaleGenerator(nn.Module):
             x_e.append(intermediate_feats)
         
         # pdb.set_trace()
-        output = torch.empty(0)#.cuda()
+        output = torch.empty(0).cuda()
         for i, child in enumerate(self.decoder.children()):
             # TODO Setup so that previous output is input to next
 
@@ -492,6 +492,7 @@ class MultiscaleGenerator(nn.Module):
             output = child(cat)
         
         output = self.final_transform(output)
+        # print(output.shape)
         
         return output
 
@@ -764,8 +765,17 @@ class NLayerDiscriminator(nn.Module):
         sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]  # output 1 channel prediction map
         self.model = nn.Sequential(*sequence)
 
+    def forward_debug(self, input):
+        print(input.shape)
+        output = input
+        for m in self.model.children():
+            output = m(output)
+            print(m, output.shape)
+        return output
+
     def forward(self, input):
         """Standard forward."""
+
         return self.model(input)
 
 
