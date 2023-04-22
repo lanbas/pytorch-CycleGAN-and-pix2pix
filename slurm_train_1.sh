@@ -15,8 +15,4 @@ module load python/3.9.12 cuda/11.6.2
 
 
 # run job
-python train.py --dataroot ./datasets/maze_5 --name maze5x5_100_pix2pix_global_D --model pix2pix --direction BtoA --netD global --n_epochs 100 
-
-
-
-
+python train.py --dataroot ./datasets/facades --name maze5x5_1000_pix2pix_global_D --model pix2pix --direction BtoA 
