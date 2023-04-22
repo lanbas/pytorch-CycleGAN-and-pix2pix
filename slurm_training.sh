@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # SBATCH --account=eecs598s010w23_class
-# SBATCH --partition=spgpu
+# SBATCH --partition=gpu
 # SBATCH --time=00-01:20:00
 # SBATCH --gpus=1
 # SBATCH --cpus-per-gpu=4
