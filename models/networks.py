@@ -360,7 +360,12 @@ class ResnetGenerator(nn.Module):
             model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
 
         for i in range(n_downsampling):  # add upsampling layers
-            mult = 2 ** (n_downsampling - i)
+            mult = 2 *  decoder.append(nn.Sequential(*[nn.ConvTranspose2d(in_channels, out_channels,
+                                                              kernel_size=3, stride=2,
+                                                              padding=1, output_padding=1,
+                                                              bias=use_bias),
+                                           norm_layer(out_channels),
+                                           nn.ReLU(True)])) (n_downsampling - i)
             model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
                                          kernel_size=3, stride=2,
                                          padding=1, output_padding=1,
@@ -379,9 +384,8 @@ class ResnetGenerator(nn.Module):
         return self.model(input)
 
 class MultiscaleGenerator(nn.Module):
-    """Resnet-based generator that consists of Resnet blocks between a few downsampling/upsampling operations.
-
-    We adapt Torch code and idea from Justin Johnson's neural style transfer project(https://github.com/jcjohnson/fast-neural-style)
+    """
+        Multiscale generator with coarse to fine encoder streams, combined in decoder
     """
 
     def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
@@ -404,9 +408,9 @@ class MultiscaleGenerator(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
 
         ###### Encoder ###### 
-        starting_kernel_size = 64
+        starting_kernel_size = 128 
         e_starting_channel_size = 128 # Num channels in lowest resolution feature of each stream 
-        self.num_encoder_streams = 5
+        self.num_encoder_streams = 6
 
         self.encoder_streams = nn.ModuleList([])
         for i in range(self.num_encoder_streams):
@@ -456,13 +460,13 @@ class MultiscaleGenerator(nn.Module):
 
         # pdb.set_trace()
 
-    def forward_debug(self, input):
-        print(input.shape)
-        output = input
-        for m in self.model.children():
-            output = m(output)
-            print(m, output.shape)
-        return output
+    # def forward_debug(self, input):
+    #     print(input.shape)
+    #     output = input
+    #     for m in self.model.children():
+    #         output = m(output)
+    #         print(m, output.shape)
+    #     return output
 
     def forward(self, input):
         """Standard forward"""
@@ -480,7 +484,11 @@ class MultiscaleGenerator(nn.Module):
             x_e.append(intermediate_feats)
         
         # pdb.set_trace()
-        output = torch.empty(0).cuda()
+        if torch.cuda.is_available():
+            output = torch.empty(0).cuda()
+        else:
+            output = torch.empty(0)
+
         for i, child in enumerate(self.decoder.children()):
             # TODO Setup so that previous output is input to next
 
