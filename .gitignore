@@ -46,4 +46,4 @@ test/data/legacy_serialized.pt
 wandb/
 
 env/
-*.out 
+*.out

@@ -3,8 +3,6 @@ import torch.nn as nn
 from torch.nn import init
 import functools
 from torch.optim import lr_scheduler
-import pdb
-import torch.nn.functional as F
 
 
 ###############################################################################
@@ -157,8 +155,6 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
         net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'unet_256':
         net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
-    elif netG == 'multiscale':
-        net = MultiscaleGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9)
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % netG)
     return init_net(net, init_type, init_gain, gpu_ids)
@@ -199,8 +195,6 @@ def define_D(input_nc, ndf, netD, n_layers_D=3, norm='batch', init_type='normal'
 
     if netD == 'basic':  # default PatchGAN classifier
         net = NLayerDiscriminator(input_nc, ndf, n_layers=3, norm_layer=norm_layer)
-    elif netD == 'global':
-        net = GlobalDiscriminator(input_nc, ndf, n_layers=3, norm_layer=norm_layer)
     elif netD == 'n_layers':  # more options
         net = NLayerDiscriminator(input_nc, ndf, n_layers_D, norm_layer=norm_layer)
     elif netD == 'pixel':     # classify if each pixel is real or fake
@@ -237,8 +231,6 @@ class GANLoss(nn.Module):
         self.gan_mode = gan_mode
         if gan_mode == 'lsgan':
             self.loss = nn.MSELoss()
-        if gan_mode == 'global':
-            self.loss = nn.CrossEntropyLoss()
         elif gan_mode == 'vanilla':
             self.loss = nn.BCEWithLogitsLoss()
         elif gan_mode in ['wgangp']:
@@ -364,12 +356,7 @@ class ResnetGenerator(nn.Module):
             model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
 
         for i in range(n_downsampling):  # add upsampling layers
-            mult = 2 *  decoder.append(nn.Sequential(*[nn.ConvTranspose2d(in_channels, out_channels,
-                                                              kernel_size=3, stride=2,
-                                                              padding=1, output_padding=1,
-                                                              bias=use_bias),
-                                           norm_layer(out_channels),
-                                           nn.ReLU(True)])) (n_downsampling - i)
+            mult = 2 ** (n_downsampling - i)
             model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
                                          kernel_size=3, stride=2,
                                          padding=1, output_padding=1,
@@ -384,193 +371,9 @@ class ResnetGenerator(nn.Module):
 
     def forward(self, input):
         """Standard forward"""
-        # pdb.set_trace()
         return self.model(input)
 
-class MultiscaleGenerator(nn.Module):
-    """
-        Multiscale generator with coarse to fine encoder streams, combined in decoder
-    """
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
-        """Construct a Resnet-based generator
-
-        Parameters:
-            input_nc (int)      -- the number of channels in input images
-            output_nc (int)     -- the number of channels in output images
-            ngf (int)           -- the number of filters in the last conv layer
-            norm_layer          -- normalization layer
-            use_dropout (bool)  -- if use dropout layers
-            n_blocks (int)      -- the number of ResNet blocks
-            padding_type (str)  -- the name of padding layer in conv layers: reflect | replicate | zero
-        """
-        assert(n_blocks >= 0)
-        super(MultiscaleGenerator, self).__init__()
-        if type(norm_layer) == functools.partial:
-            use_bias = norm_layer.func == nn.InstanceNorm2d
-        else:
-            use_bias = norm_layer == nn.InstanceNorm2d
-
-        ###### Encoder ###### 
-        starting_kernel_size = 128 
-        e_starting_channel_size = 128 # Num channels in lowest resolution feature of each stream 
-        self.num_encoder_streams = 6
-
-        self.encoder_streams = nn.ModuleList([])
-        for i in range(self.num_encoder_streams):
-            stream_scale = 2 ** i # Scale channels/kernel sizes according to coarse/fine streams
-            stream = []
-            
-            # Set up this streams initial convolution
-            kernel_size = starting_kernel_size // stream_scale
-            out_channels = e_starting_channel_size // stream_scale
-            stream.append(nn.Sequential(*[nn.Conv2d(in_channels=3,
-                                                out_channels= out_channels,
-                                                kernel_size=kernel_size,
-                                                stride=kernel_size // 2,
-                                                padding=kernel_size // 4,
-                                                bias=use_bias),
-                                      norm_layer(out_channels),
-                                      nn.ReLU(True)]))
-
-            # Add resblocks to continue processing later streams 
-            for j in range(i):
-                stream += [ResnetBlockDownsample(out_channels * (2**j), padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-
-            stream = nn.Sequential(*stream)
-            self.encoder_streams.append(stream)
-
-        ###### Decoder ###### 
-        d_starting_out_channel = 512
-        decoder = []
-        out_channels = 0
-        for i in range(self.num_encoder_streams):
-            #               num features of this size          feature channel dim               prev feature
-            in_channels = (self.num_encoder_streams - i) * (e_starting_channel_size // (2 ** i)) + out_channels
-            out_channels = d_starting_out_channel // (2 ** i)
-            decoder.append(nn.Sequential(*[nn.ConvTranspose2d(in_channels, out_channels,
-                                                              kernel_size=3, stride=2,
-                                                              padding=1, output_padding=1,
-                                                              bias=use_bias),
-                                           norm_layer(out_channels),
-                                           nn.ReLU(True)]))
-            
-        self.decoder = nn.Sequential(*decoder)
-            
-        # Transform final feature to RGB image
-        self.final_transform = nn.Sequential(*[nn.ReflectionPad2d(3),
-                                               nn.Conv2d(out_channels, output_nc, kernel_size=7, padding=0),
-                                               nn.Tanh()])
-
-        # pdb.set_trace()
-
-    # def forward_debug(self, input):
-    #     print(input.shape)
-    #     output = input
-    #     for m in self.model.children():
-    #         output = m(output)
-    #         print(m, output.shape)
-    #     return output
-
-    def forward(self, input):
-        """Standard forward"""
-        x_e = []
-
-        # Input image to each encoder stream
-        for i in range(self.num_encoder_streams):
-            intermediate_feats = []
-
-            # Go through initial conv + following res blocks and save intermediate outputs
-            x = input
-            for enc_child in self.encoder_streams[i].children():
-                x = enc_child(x)
-                intermediate_feats.append(torch.Tensor(x)) # WRONG TODO -- prev output needs to be input
-            x_e.append(intermediate_feats)
-        
-        # pdb.set_trace()
-        if torch.cuda.is_available():
-            output = torch.empty(0).cuda()
-        else:
-            output = torch.empty(0)
-
-        for i, child in enumerate(self.decoder.children()):
-            # TODO Setup so that previous output is input to next
-
-            to_cat = [output]
-            for j in range(i, len(x_e)):
-                to_cat.append(x_e[j][-1 - i]) # Keep moving back which one you selectfrom each encoder stream
-
-            cat = torch.cat(to_cat, dim=1)
-            output = child(cat)
-        
-        output = self.final_transform(output)
-        # print(output.shape)
-        
-        return output
-
-# Alternative ResNet Block that reduces feature size by 0.5 while doubling channels in output
-class ResnetBlockDownsample(nn.Module):
-    """Define a Resnet block"""
-
-    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
-        """Initialize the Resnet block
-
-        A resnet block is a conv block with skip connections
-        We construct a conv block with build_conv_block function,
-        and implement skip connections in <forward> function.
-        Original Resnet paper: https://arxiv.org/pdf/1512.03385.pdf
-        """
-        super(ResnetBlockDownsample, self).__init__()
-        self.conv_shortcut = nn.Conv2d(dim, dim * 2, kernel_size=1, bias=False)
-        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
-
-    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
-        """Construct a convolutional block.
-
-        Parameters:
-            dim (int)           -- the number of channels in the conv layer.
-            padding_type (str)  -- the name of padding layer: reflect | replicate | zero
-            norm_layer          -- normalization layer
-            use_dropout (bool)  -- if use dropout layers.
-            use_bias (bool)     -- if the conv layer uses bias or not
-
-        Returns a conv block (with a conv layer, a normalization layer, and a non-linearity layer (ReLU))
-        """
-        conv_block = []
-        p = 0
-        if padding_type == 'reflect':
-            conv_block += [nn.ReflectionPad2d(1)]
-        elif padding_type == 'replicate':
-            conv_block += [nn.ReplicationPad2d(1)]
-        elif padding_type == 'zero':
-            p = 1
-        else:
-            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
-        if use_dropout:
-            conv_block += [nn.Dropout(0.5)]
-
-        p = 0
-        if padding_type == 'reflect':
-            conv_block += [nn.ReflectionPad2d(1)]
-        elif padding_type == 'replicate':
-            conv_block += [nn.ReplicationPad2d(1)]
-        elif padding_type == 'zero':
-            p = 1
-        else:
-            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-        conv_block += [nn.Conv2d(dim, dim * 2, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim * 2)]
-
-        return nn.Sequential(*conv_block)
-
-    def forward(self, x):
-        """Forward function (with skip connections)"""
-        x = F.interpolate(x, scale_factor=0.5)
-        x_s = self.conv_shortcut(x)
-        out = x_s + self.conv_block(x)  # add skip connections with corrected channels
-        return out
-    
 class ResnetBlock(nn.Module):
     """Define a Resnet block"""
 
@@ -627,7 +430,6 @@ class ResnetBlock(nn.Module):
 
     def forward(self, x):
         """Forward function (with skip connections)"""
-        # x = F.interpolate(x, scale_factor=0.5)
         out = x + self.conv_block(x)  # add skip connections
         return out
 
@@ -777,85 +579,10 @@ class NLayerDiscriminator(nn.Module):
         sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]  # output 1 channel prediction map
         self.model = nn.Sequential(*sequence)
 
-    def forward_debug(self, input):
-        print(input.shape)
-        output = input
-        for m in self.model.children():
-            output = m(output)
-            print(m, output.shape)
-        return output
-
-    def forward(self, input):
-        """Standard forward."""
-
-        return self.model(input)
-
-class GlobalDiscriminator(nn.Module):
-    """Defines a PatchGAN discriminator"""
-
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d):
-        """Construct a PatchGAN discriminator
-
-        Parameters:
-            input_nc (int)  -- the number of channels in input images
-            ndf (int)       -- the number of filters in the last conv layer
-            n_layers (int)  -- the number of conv layers in the discriminator
-            norm_layer      -- normalization layer
-        """
-        super(GlobalDiscriminator, self).__init__()
-        if type(norm_layer) == functools.partial:  # no need to use bias as BatchNorm2d has affine parameters
-            use_bias = norm_layer.func == nn.InstanceNorm2d
-        else:
-            use_bias = norm_layer == nn.InstanceNorm2d
-
-        kw = 4
-        padw = 1
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
-        nf_mult = 1
-        nf_mult_prev = 1
-        for n in range(1, n_layers):  # gradually increase the number of filters
-            nf_mult_prev = nf_mult
-            nf_mult = min(2 ** n, 8)
-            sequence += [
-                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias),
-                norm_layer(ndf * nf_mult),
-                nn.LeakyReLU(0.2, True)
-            ]
-
-        nf_mult_prev = nf_mult
-        nf_mult = min(2 ** n_layers, 8)
-        sequence += [
-            nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias),
-            norm_layer(ndf * nf_mult),
-            nn.LeakyReLU(0.2, True)
-        ]
-
-        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]  # output 1 channel prediction map
-        
-        # Flatten and process for binary classification
-        sequence += [norm_layer(1),
-                     nn.LeakyReLU(0.2, True),
-                     nn.Flatten(),
-                     nn.Linear(900, 256),
-                    #  nn.BatchNorm1d(256),
-                     nn.LeakyReLU(0.2, True),
-                     nn.Linear(256, 2)]  
-        self.model = nn.Sequential(*sequence)
-
-    def forward_debug(self, input):
-        print(input.shape)
-        x = input 
-        for child in self.model.children():
-            x = child(x)
-            print(child)
-            print(x.shape)
-        # pdb.set_trace()
-        return x
-        
-
     def forward(self, input):
         """Standard forward."""
         return self.model(input)
+
 
 class PixelDiscriminator(nn.Module):
     """Defines a 1x1 PatchGAN discriminator (pixelGAN)"""
